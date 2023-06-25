@@ -317,6 +317,17 @@ func (c *client) getLoadBalancerArn(ctx context.Context, targetGroupArn string) 
 	return output.TargetGroups[0].LoadBalancerArns[0], nil
 }
 
+func (c *client) DeregisterTargets(ctx context.Context, targetGroupArn string) error {
+	input := &elasticloadbalancingv2.DeregisterTargetsInput{
+		TargetGroupArn: aws.String(targetGroupArn),
+	}
+	_, err := c.elbClient.DeregisterTargets(ctx, input)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (c *client) ModifyListener(ctx context.Context, listenerArn string, routingTrafficCfg RoutingTrafficConfig) error {
 	if len(routingTrafficCfg) != 2 {
 		return fmt.Errorf("invalid listener configuration: requires 2 target groups")

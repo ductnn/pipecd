@@ -141,6 +141,7 @@ func rollback(ctx context.Context, in *executor.Input, platformProviderName stri
 
 	// Remove old taskSet if existed.
 	if prevPrimaryTaskSet != nil {
+		client.DeregisterTargets(ctx, *taskSet.TaskSetArn)
 		if err = client.DeleteTaskSet(ctx, *service, *prevPrimaryTaskSet.TaskSetArn); err != nil {
 			in.LogPersister.Errorf("Failed to remove unused previous PRIMARY taskSet %s: %v", *prevPrimaryTaskSet.TaskSetArn, err)
 			return false
