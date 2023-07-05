@@ -66,13 +66,19 @@ Go to the [Discussion](https://github.com/pipe-cd/pipecd/discussions) to know wh
 
 ### Contributing
 
-We'd love you to join us! Please see the [Contributor Guide](https://pipecd.dev/docs/contribution-guidelines/).
+We'd love you to join us! Please see the [Contributing docs](CONTRIBUTING.md).
 
 #
 
 ### Community
 
 As a CNCF Sandbox project, PipeCD follows [CNCF Code of Conduct](https://github.com/pipe-cd/pipecd/blob/master/CODE_OF_CONDUCT.md).
+
+#
+
+### Adopters
+
+You can find a list of publicly recognized users of the PipeCD in the [ADOPTERS.md](ADOPTERS.md) file. We strongly encourage all PipeCD users to add their names to this list, as we love to see the community's growing success!
 
 #
 
