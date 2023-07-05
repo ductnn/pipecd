@@ -146,7 +146,12 @@ func rollback(ctx context.Context, in *executor.Input, platformProviderName stri
 			Weight:         0,
 		},
 	}
-	if err := client.ModifyListener(ctx, *primaryTargetGroup.TargetGroupArn, routingTrafficCfg); err != nil {
+	currListenerArns, err := client.GetListenerArns(ctx, *primaryTargetGroup)
+	if err != nil {
+		in.LogPersister.Errorf("Failed to get current active listener: %v", err)
+		return false
+	}
+	if err := client.ModifyListeners(ctx, currListenerArns, routingTrafficCfg); err != nil {
 		in.LogPersister.Errorf("Failed to routing traffic to CANARY variant: %v", err)
 		return false
 	}
