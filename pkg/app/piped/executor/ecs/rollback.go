@@ -17,6 +17,7 @@ package ecs
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 
@@ -82,19 +83,19 @@ func (e *rollbackExecutor) ensureRollback(ctx context.Context) model.StageStatus
 		return model.StageStatus_STAGE_FAILURE
 	}
 
-	primary, _, ok := loadTargetGroups(&e.Input, appCfg, runningDS)
+	primary, canary, ok := loadTargetGroups(&e.Input, appCfg, runningDS)
 	if !ok {
 		return model.StageStatus_STAGE_FAILURE
 	}
 
-	if !rollback(ctx, &e.Input, platformProviderName, platformProviderCfg, taskDefinition, serviceDefinition, primary) {
+	if !rollback(ctx, &e.Input, platformProviderName, platformProviderCfg, taskDefinition, serviceDefinition, primary, canary) {
 		return model.StageStatus_STAGE_FAILURE
 	}
 
 	return model.StageStatus_STAGE_SUCCESS
 }
 
-func rollback(ctx context.Context, in *executor.Input, platformProviderName string, platformProviderCfg *config.PlatformProviderECSConfig, taskDefinition types.TaskDefinition, serviceDefinition types.Service, targetGroup *types.LoadBalancer) bool {
+func rollback(ctx context.Context, in *executor.Input, platformProviderName string, platformProviderCfg *config.PlatformProviderECSConfig, taskDefinition types.TaskDefinition, serviceDefinition types.Service, primaryTargetGroup *types.LoadBalancer, canaryTargetGroup *types.LoadBalancer) bool {
 	in.LogPersister.Infof("Start rollback the ECS service and task family: %s and %s to original stage", *serviceDefinition.ServiceName, *taskDefinition.Family)
 	client, err := provider.DefaultRegistry().Client(platformProviderName, platformProviderCfg, in.Logger)
 	if err != nil {
@@ -127,9 +128,38 @@ func rollback(ctx context.Context, in *executor.Input, platformProviderName stri
 	}
 
 	// On rolling back, the scale of desired tasks will be set to 100 (same as the original state).
-	taskSet, err := client.CreateTaskSet(ctx, *service, *td, targetGroup, 100)
+	taskSet, err := client.CreateTaskSet(ctx, *service, *td, primaryTargetGroup, 100)
 	if err != nil {
 		in.LogPersister.Errorf("Failed to create ECS task set %s: %v", *serviceDefinition.ServiceName, err)
+		return false
+	}
+	fmt.Println("taskset", *taskSet.TaskSetArn, *taskSet.TaskDefinition, *taskSet.Scale)
+
+	// Reset routing
+	routingTrafficCfg := provider.RoutingTrafficConfig{
+		{
+			TargetGroupArn: *primaryTargetGroup.TargetGroupArn,
+			Weight:         100,
+		},
+		{
+			TargetGroupArn: *canaryTargetGroup.TargetGroupArn,
+			Weight:         0,
+		},
+	}
+	if err := client.ModifyListener(ctx, *primaryTargetGroup.TargetGroupArn, routingTrafficCfg); err != nil {
+		in.LogPersister.Errorf("Failed to routing traffic to CANARY variant: %v", err)
+		return false
+	}
+
+	// Delete Canary taskSet
+	canaryTaskSet, ok := in.MetadataStore.Shared().Get(canaryTaskSetARNKeyName)
+	if !ok {
+		in.LogPersister.Errorf("Unable to restore CANARY task set to clean: Not found")
+		return false
+	}
+	fmt.Println("Dumaaa", canaryTaskSet)
+	if err = client.DeleteTaskSet(ctx, *service, canaryTaskSet); err != nil {
+		in.LogPersister.Errorf("Failed to remove unused previous PRIMARY taskSet %s: %v", canaryTaskSet, err)
 		return false
 	}
 
@@ -141,7 +171,7 @@ func rollback(ctx context.Context, in *executor.Input, platformProviderName stri
 
 	// Remove old taskSet if existed.
 	if prevPrimaryTaskSet != nil {
-		client.DeregisterTargets(ctx, *taskSet.TaskSetArn)
+		fmt.Println(*prevPrimaryTaskSet.TaskSetArn, *prevPrimaryTaskSet.TaskDefinition, *prevPrimaryTaskSet.Scale)
 		if err = client.DeleteTaskSet(ctx, *service, *prevPrimaryTaskSet.TaskSetArn); err != nil {
 			in.LogPersister.Errorf("Failed to remove unused previous PRIMARY taskSet %s: %v", *prevPrimaryTaskSet.TaskSetArn, err)
 			return false
